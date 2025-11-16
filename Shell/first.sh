@@ -1,0 +1,12 @@
+#!/bin/bash
+
+#echo "hello world"
+
+#var="funny!"
+
+echo $var
+
+for file in $(ls /Users/neil/Projects/00_shell/); do
+    echo "$file"
+
+done
