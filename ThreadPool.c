@@ -68,7 +68,7 @@ static void *nThreadPoolCallBack(void *arg) {
 
     pthread_mutex_unlock(&worker->manager->tasks);
 
-    task->task_func(task->user_data);
+    task->task_func(task);
   }
 
   free(worker);
@@ -139,3 +139,43 @@ int nThreadPoolPushTask(ThreadPool *pool, struct nTask *tasks) {
   
   pthread_mutex_unlock(pool->mutex);
 }
+
+//sdk --> debug thread pool
+
+#if 1
+
+#define THREADPOOL_INIT_COUNT 20
+#define TASK_INIT_SIZE 1000
+
+void task_entry(void *arg) {
+  int *pidx = (int *)arg;
+
+  printf("idx:%d\n", *pidx);
+
+  free(pidx);
+}
+
+int main(void) {
+  ThreadPool pool;
+
+  nThreadPoolCreate(&pool,THREADPOOL_INIT_COUNT);
+
+  int i = 0;
+  for (i = 0;i < TASK_INIT_SIZE;i++) {
+    struct nTask *task = (struct nTask*)malloc(sizeof(struct nTask));
+    if (task == NULL) {
+      perror("malloc");
+      exit(1);
+    }
+    memset(task, 0, sizeof(struct nTask));
+
+    task->task_func = task_entry;
+    task->user_data = malloc(sizeof(int));
+
+    *(int *)task->user = i;
+
+    nThreadPoolPushTask(&pool, task);
+  }
+}
+
+#endif
