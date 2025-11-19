@@ -1,18 +1,23 @@
-//用宏来实现insert和remove功能
-#define LIST_INSERT(item, list) do {		\
-    item->prev = NULL;				\
-    item->next = list;				\
-    if ((list) != NULL) (list)->prev = item;	\
-						\
-    list = item;				\
-  } while(0)					\
+#include<stdio.h>
+#include<string.h>
+#include<stdlib.h>
+#include<pthread.h>
+#include<unistd.h>
 
-#define LIST_REMOVE(item, list) do {				\
-    if (item->prev != NULL) item->prev->next = item->next;	\
-    if (item->next != NULL) item->next->prev = item->prev;	\
-    if (list == item) list = item->next;			\
-    item->prev = item->next = NULL;				\
-  } while(0)
+#define LIST_INSERT(item, list) do {	\
+	item->prev = NULL;					\
+	item->next = list;					\
+	if ((list) != NULL) (list)->prev = item; \
+	(list) = item;						\
+} while(0)
+
+
+#define LIST_REMOVE(item, list) do {	\
+	if (item->prev != NULL) item->prev->next = item->next; \
+	if (item->next != NULL) item->next->prev = item->prev; \
+	if (list == item) list = item->next; 					\
+	item->prev = item->next = NULL;							\
+} while(0)
 
 
 /*
@@ -22,7 +27,7 @@
  */
 //任务队列的结构体
  struct nTask {
-  void (*task_func) (void *arg);
+  void (*task_func) (struct nTask* task);
   void *user_data;
 
   struct nTask *prev;
@@ -66,14 +71,14 @@ static void *nThreadPoolCallBack(void *arg) {
     struct nTask *task = worker->manager->tasks;
     LIST_REMOVE(task, worker->manager->tasks);
 
-    pthread_mutex_unlock(&worker->manager->tasks);
+    pthread_mutex_unlock(&worker->manager->mutex);
 
     task->task_func(task);
   }
 
   free(worker);
 
-  return ;
+  return NULL;
 }
 
 
@@ -82,11 +87,12 @@ static void *nThreadPoolCallBack(void *arg) {
  *
  */
 
-int nThreadPoolCreate(TreadPool *pool,int numWorkers) {
+int nThreadPoolCreate(ThreadPool *pool,int numWorkers) {
   if (pool == NULL) return -1;
-  if (nWorker < 1) numWorkers = 1;
+  if (numWorkers < 1) numWorkers = 1;
+  memset(pool, 0, sizeof(ThreadPool));
 
-  pthread_cond_t blank_cond = PTHREAD_COND_INITIALIZE;
+  pthread_cond_t blank_cond = PTHREAD_COND_INITIALIZER;
   memcpy(&pool->cond, &blank_cond, sizeof(pthread_cond_t));
 
   pthread_mutex_init(&pool->mutex, NULL);
@@ -94,7 +100,7 @@ int nThreadPoolCreate(TreadPool *pool,int numWorkers) {
   int i = 0;
   for (i = 0;i < numWorkers;i++) {
     struct nWorker *worker =(struct nWorker*)malloc(sizeof(struct nWorker));
-    if (work == NULL) {
+    if (worker == NULL) {
       perror("malloc");
       return -2;
     }
@@ -109,20 +115,21 @@ int nThreadPoolCreate(TreadPool *pool,int numWorkers) {
     }
     LIST_INSERT(worker, pool->workers);
   }
+  printf("call_back\n");
   return 0;
 }
 
 int nThreadPoolDestory(ThreadPool *pool, int nWorker) {
   struct nWorker *worker = NULL;
   for (worker = pool->workers; worker != NULL; worker = worker->next) {
-    worker->terminate;
+    worker->terminate = 1;
   }
   //这把锁和条件等待时候的锁是同一把
-  pthread_mutex_lock(pool->mutex);
+  pthread_mutex_lock(&pool->mutex);
 
   pthread_cond_broadcast(&pool->cond);//唤醒所有等待这个条件的线程
   
-  pthread_mutex_unlock(pool->mutex);
+  pthread_mutex_unlock(&pool->mutex);
 
   pool->workers = NULL;
   pool->tasks = NULL;
@@ -131,13 +138,15 @@ int nThreadPoolDestory(ThreadPool *pool, int nWorker) {
 }
 
 int nThreadPoolPushTask(ThreadPool *pool, struct nTask *tasks) {
-  pthread_mutex_lock(pool->mutex);
+  pthread_mutex_lock(&pool->mutex);
 
-  LIST_INSERT(task, pool->tasks);
+  LIST_INSERT(tasks, pool->tasks);
 
   pthread_cond_signal(&pool->cond);//唤醒一个等待这个条件的线程
   
-  pthread_mutex_unlock(pool->mutex);
+  pthread_mutex_unlock(&pool->mutex);
+
+  return 0;
 }
 
 //sdk --> debug thread pool
@@ -147,18 +156,21 @@ int nThreadPoolPushTask(ThreadPool *pool, struct nTask *tasks) {
 #define THREADPOOL_INIT_COUNT 20
 #define TASK_INIT_SIZE 1000
 
-void task_entry(void *arg) {
-  int *pidx = (int *)arg;
+void task_entry(struct nTask *task) {
+  //struct nTask *task = (struct nTask*)task;
+  int idx = *(int *)task->user_data;
 
-  printf("idx:%d\n", *pidx);
+  printf("idx:%d\n", idx);
 
-  free(pidx);
+  free(task->user_data);
+  free(task);
 }
 
 int main(void) {
   ThreadPool pool;
 
   nThreadPoolCreate(&pool,THREADPOOL_INIT_COUNT);
+  printf("nThreadPoolCreate -- finish\n");
 
   int i = 0;
   for (i = 0;i < TASK_INIT_SIZE;i++) {
@@ -172,10 +184,12 @@ int main(void) {
     task->task_func = task_entry;
     task->user_data = malloc(sizeof(int));
 
-    *(int *)task->user = i;
+    *(int *)task->user_data = i;
 
     nThreadPoolPushTask(&pool, task);
   }
+
+  getchar();
 }
 
 #endif

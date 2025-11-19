@@ -1,0 +1,12 @@
+FROM gcc:latest
+
+WORKDIR /app
+
+# 复制源代码
+COPY ThreadPool.c .
+
+# 编译程序
+RUN gcc -o ThreadPool ThreadPool.c -lpthread
+
+# 运行程序
+CMD ["./ThreadPool"]
