@@ -1,15 +1,214 @@
-#include<mysql.h>
+#include<mysql/mysql.h>
 #include<stdio.h>
 #include<string.h>
 // C U R D
 
-#define NEIL_DB_SERVER_IP "172.30.229.211"
+#define NEIL_DB_SERVER_IP "xxx"
 #define NEIL_DB_SERVER_PORT 3306
 #define NEIL_DB_USERNAME "admin"
-#define NEIL_DB_PASSWORD "Yuan1234"
+#define NEIL_DB_PASSWORD "xxx"
 #define NEIL_DB_DEFAULTDB "Neil_db"
 
+
+
 #define SQL_INSERT_TBL_USER "insert tbl_user(u_name, u_gender) value('Alice', 'female');"
+#define SQL_SELECT_TBL_USER "select * from tbl_user;"
+
+#define SQL_DELETE_TBL_USER "call proc_delete_user('Alice')"
+
+#define SQL_INSERT_IMG_USER "insert tbl_user(u_name, u_gender, u_img) value('Alice', 'female', ?);"
+
+#define SQL_SELECT_IMG_USER "select u_img from tbl_user where u_name = 'Alice';"
+
+#define FILE_IMAGE_LENGTH (64*1024)
+
+int neil_mysql_select(MYSQL *handle) {
+  if (mysql_real_query(handle, SQL_SELECT_TBL_USER, strlen(SQL_SELECT_TBL_USER))) {
+    printf("mysql_real_query: %s\n", mysql_error(handle));
+  }
+
+  MYSQL_RES *res = mysql_store_result(handle);
+  if (res == NULL) {
+    printf("mysql_real_query: %s\n", mysql_error(handle));
+    return -2;
+  }
+
+  int rows = mysql_num_rows(res);
+  printf("rows: %d\n", rows);
+
+  int fields = mysql_num_fields(res);
+  printf("fields: %d\n",fields);
+
+  //取出并且显示结果
+  MYSQL_ROW row;
+  while ((row = mysql_fetch_row(res))) {
+
+    int i = 0;
+    for (i = 0; i < fields; i++) {
+      printf("%s\t", row[i]);
+    }
+    printf("\n");
+  }
+  
+  
+  mysql_free_result(res);
+
+  return 0;
+}
+
+//filename: path + filename
+//buffer:用于存储图片到buffer里面
+int read_image(char *filename, char *buffer) {
+  if (filename == NULL || buffer == NULL) return -1;
+  
+    FILE *fp = fopen(filename, "rb"); //fp指向文件的开头
+    if (fp == NULL) {
+      printf("fopen failed\n");
+      return -2;
+    }
+
+    //file size
+    //下面这个函数将fp指向末尾
+    fseek(fp, 0, SEEK_END);
+    int length = ftell(fp);//偏移量
+    fseek(fp, 0, SEEK_SET);
+
+    int size = fread(buffer, 1, length, fp);
+    if (size != length) {
+      printf("fread failed:%d\n", size);
+      return -3;
+    }
+
+    fclose(fp);
+
+    return size;
+}
+
+
+int write_image(char *filename, char *buffer, int length) {
+  if (filename == NULL || buffer == NULL || length <= 0) return -1;
+
+  FILE *fp = fopen(filename, "wb+"); //fp指向文件的开头
+  if (fp == NULL) {
+    printf("fopen failed\n");
+    return -2;
+  }
+
+  int size = fwrite(buffer, 1, length, fp);
+  if (size != length) {
+    printf("fwrite failed: %d\n", size);
+    return -3;
+  }
+
+  fclose(fp);
+  
+  return size;
+  
+}
+
+int mysql_write(MYSQL *handle, char *buffer, int length) {
+
+  if(handle == NULL || buffer == NULL || length <= 0) return -1;
+  //statement
+  MYSQL_STMT *stmt = mysql_stmt_init(handle);
+  int ret = mysql_stmt_prepare(stmt, SQL_INSERT_IMG_USER, strlen(SQL_INSERT_IMG_USER));
+  if (ret) {
+    printf("mysql_stmt_prepar: %s\n", mysql_error(handle));
+    return -2;
+  }
+
+  MYSQL_BIND param = {0};
+  param.buffer_type = MYSQL_TYPE_LONG_BLOB;
+  param.buffer = NULL;
+  param.is_null = 0;
+  param.length = NULL;
+
+  ret = mysql_stmt_bind_param(stmt, &param);
+  if (ret) {
+    printf("mysql_stmt_bind_param: %s\n", mysql_error(handle));
+    return -3;
+  }
+  //分段将数据发到服务器
+  ret = mysql_stmt_send_long_data(stmt, 0, buffer, length);
+    if (ret) {      
+      printf("mysql_stmt_send_long_data: %s\n", mysql_error(handle));
+      return -4;  
+    }
+  //执行：插入到服务器里
+  ret = mysql_stmt_execute(stmt);
+  if (ret) {
+    printf("mysql_stmt_execute: %s\n", mysql_error(handle));
+    return -5;  
+  }
+  //关闭
+  ret = mysql_stmt_close(stmt);
+  if (ret) {
+    printf("mysql_stmt_close: %s\n", mysql_error(handle));
+    return -6;  
+  }
+
+  return ret;
+}
+
+
+//从数据库中读取出来
+int mysql_read(MYSQL *handle, char *buffer, int length) {
+  if(handle == NULL || buffer == NULL || length <= 0) return -1;
+  
+  MYSQL_STMT *stmt = mysql_stmt_init(handle);
+  int ret = mysql_stmt_prepare(stmt, SQL_SELECT_IMG_USER, strlen(SQL_SELECT_IMG_USER));
+  if (ret) {
+    printf("mysql_stmt_prepar: %s\n", mysql_error(handle));
+    return -2;
+  }
+
+  
+  MYSQL_BIND result = {0};
+
+  
+  result.buffer_type = MYSQL_TYPE_LONG_BLOB;
+  unsigned long total_length = 0;
+  result.length = &total_length;
+
+  ret = mysql_stmt_bind_result(stmt, &result);
+  if (ret) {
+    printf("mysql_stmt_bind_result: %s\n", mysql_error(handle));
+    return -3;
+  }
+  
+  ret = mysql_stmt_execute(stmt);  
+  if (ret) {      
+    printf("mysql_stmt_execute: %s\n", mysql_error(handle));
+    return -4;  
+  }
+
+  ret = mysql_stmt_store_result(stmt);
+  if (ret) {      
+    printf("mysql_stmt_store_result: %s\n", mysql_error(handle));
+    return -5;  
+  }
+  //多个数据
+  while(1) {
+    ret = mysql_stmt_fetch(stmt);
+    if (ret != 0 && ret != MYSQL_DATA_TRUNCATED) {
+      break;
+    }
+    int start = 0;
+    while(start < (int)total_length) {
+      result.buffer = buffer + start; //结果集的buffer和存储图片的buffer是同一个
+      result.buffer_length = 1;
+      mysql_stmt_fetch_column(stmt, &result, 0, start);
+      start += result.buffer_length;
+      
+    }
+    
+  }
+
+  mysql_stmt_close(stmt);
+  return total_length;
+
+  
+}
 
 int main() {
   MYSQL mysql;
@@ -29,12 +228,53 @@ int main() {
 			 0)) {
     printf("mysqi_real_conncet:%s\n", mysql_error(&mysql));
 
-    return -2;
+    goto Exit;
   }
-  //mysql --> insert
+  
+  printf("case : mysql --> insert\n");
+
+#if 1 
   if(mysql_real_query(&mysql, SQL_INSERT_TBL_USER, strlen(SQL_INSERT_TBL_USER))) {
-    mysql_close(&mysql);
-    return 0;
+    printf("mysqi_real_query:%s\n", mysql_error(&mysql));
+    goto Exit;
   }
+#endif
+  neil_mysql_select(&mysql);
+
+  printf("case : mysql --> delete\n");
+
+
+#if 1
+  if(mysql_real_query(&mysql, SQL_DELETE_TBL_USER, strlen(SQL_DELETE_TBL_USER))) {
+    printf("mysqi_real_query:%s\n", mysql_error(&mysql));
+    goto Exit;
+  }
+  
+  
+#endif
+
+#if 1
+
+  printf("case : mysql --> read image\n");
+  char buffer[FILE_IMAGE_LENGTH] = {0};
+  int length = read_image("/Users/neil/MyProjects/Toys/Emacs.png", buffer);
+  if (length < 0) goto Exit;
+
+  mysql_write(&mysql, buffer, length);
+#endif  
+  
+  neil_mysql_select(&mysql);
+
+  printf("case : mysql --> read mysql and write image\n");
+  memset(buffer, 0, FILE_IMAGE_LENGTH); //避免buffer里面还有之前的数据
+  length = mysql_read(&mysql, buffer, FILE_IMAGE_LENGTH);
+
+  write_image("a.png", buffer, length);
+  
+ Exit:
+  
+  mysql_close(&mysql);
+  
+  return 0;
   
 }
