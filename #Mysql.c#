@@ -1,24 +1,24 @@
 #include<mysql/mysql.h>
 #include<stdio.h>
 #include<string.h>
+// C U R D
 
-//别忘了改这些基本参数
-#define NEIL_DB_SERVER_IP "192.168.xxx.xxx"
-#define NEIL_DB_SERVER_PORT xxxx
-#define NEIL_DB_USERNAME "xxx"
+#define NEIL_DB_SERVER_IP "xxx"
+#define NEIL_DB_SERVER_PORT 3306
+#define NEIL_DB_USERNAME "admin"
 #define NEIL_DB_PASSWORD "xxx"
-#define NEIL_DB_DEFAULTDB "xxxx"
+#define NEIL_DB_DEFAULTDB "Neil_db"
 
 
 
-#define SQL_INSERT_TBL_USER "insert tbl_user(u_name, u_gender) value('Emacs', 'unkown');"
+#define SQL_INSERT_TBL_USER "insert tbl_user(u_name, u_gender) value('Alice', 'female');"
 #define SQL_SELECT_TBL_USER "select * from tbl_user;"
 
-#define SQL_DELETE_TBL_USER "call proc_delete_user('Emacs')"
+#define SQL_DELETE_TBL_USER "call proc_delete_user('Alice')"
 
-#define SQL_INSERT_IMG_USER "insert tbl_user(u_name, u_gender, u_img) value('Emacs', 'unkown', ?);"
+#define SQL_INSERT_IMG_USER "insert tbl_user(u_name, u_gender, u_img) value('Alice', 'female', ?);"
 
-#define SQL_SELECT_IMG_USER "select u_img from tbl_user where u_name = 'Emacs';"
+#define SQL_SELECT_IMG_USER "select u_img from tbl_user where u_name = 'Alice';"
 
 #define FILE_IMAGE_LENGTH (64*1024)
 
@@ -198,16 +198,11 @@ int mysql_read(MYSQL *handle, char *buffer, int length) {
       result.buffer = buffer + start; //结果集的buffer和存储图片的buffer是同一个
       result.buffer_length = 1;
       mysql_stmt_fetch_column(stmt, &result, 0, start);
-      start += result.buffer_length;
-      
-    }
-    
+      start += result.buffer_length;      
+    } 
   }
-
   mysql_stmt_close(stmt);
   return total_length;
-
-  
 }
 
 int main() {
