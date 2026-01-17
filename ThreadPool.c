@@ -84,7 +84,6 @@ static void *nThreadPoolCallBack(void *arg) {
 
 /*
  * API
- *
  */
 
 int nThreadPoolCreate(ThreadPool *pool,int numWorkers) {
