@@ -1,3 +1,6 @@
+#include <unistd.h>      
+#include <sys/socket.h>  
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -5,7 +8,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <pthread.h>
-#include <unistd.h>
+
 #include <errno.h>
 #include <fcntl.h>
 
@@ -14,6 +17,7 @@
 #define BUFFER_LENGTH		1024
 #define EPOLL_SIZE			1024
 
+#define MAX_PORT			100
 
 void *client_routine(void *arg) {
 
@@ -38,6 +42,16 @@ void *client_routine(void *arg) {
 }
 
 
+int islistenfd(int fd, int *fds) {
+
+	int i = 0;
+	for (i = 0;i < MAX_PORT;i ++) {
+		if (fd == *(fds+i)) return fd;
+	}
+
+	return 0;
+}
+
 // ./tcp_server 
 
 int main(int argc, char *argv[]) {
@@ -46,24 +60,39 @@ int main(int argc, char *argv[]) {
 		printf("Param Error\n");
 		return -1;
 	}
-	int port = atoi(argv[1]);
+	
+	int port = atoi(argv[1]); // start 
+	int sockfds[MAX_PORT] = {0}; // listen fd
+	int epfd = epoll_create(1);  
 
-	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	int i = 0;
+	for (i = 0;i < MAX_PORT;i ++) {
 
-	struct sockaddr_in addr;
-	memset(&addr, 0, sizeof(struct sockaddr_in));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
-	addr.sin_addr.s_addr = INADDR_ANY; 
+		int sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-	if (bind(sockfd, (struct sockaddr*)&addr, sizeof(struct sockaddr_in)) < 0) {
-		perror("bind");
-		return 2;
-	}
+		struct sockaddr_in addr;
+		memset(&addr, 0, sizeof(struct sockaddr_in));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port+i); // 8888 8889 8890 8891 .... 8987
+		addr.sin_addr.s_addr = INADDR_ANY; 
 
-	if (listen(sockfd, 5) < 0) {
-		perror("listen");
-		return 3;
+		if (bind(sockfd, (struct sockaddr*)&addr, sizeof(struct sockaddr_in)) < 0) {
+			perror("bind");
+			return 2;
+		}
+
+		if (listen(sockfd, 5) < 0) {
+			perror("listen");
+			return 3;
+		}
+		printf("tcp server listen on port : %d\n", port + i);
+
+		struct epoll_event ev;
+		ev.events = EPOLLIN; 
+		ev.data.fd = sockfd;
+		epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd, &ev);
+
+		sockfds[i] = sockfd;
 	}
 	// 
 
@@ -84,15 +113,9 @@ int main(int argc, char *argv[]) {
 	
 #else
 
-	int epfd = epoll_create(1);  
+	
 	struct epoll_event events[EPOLL_SIZE] = {0};
 
-	struct epoll_event ev;
-	ev.events = EPOLLIN; 
-	ev.data.fd = sockfd;
-	epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd, &ev);
-
-	
 	while (1) {
 
 		int nready = epoll_wait(epfd, events, EPOLL_SIZE, 5); // -1, 0, 5
@@ -101,7 +124,8 @@ int main(int argc, char *argv[]) {
 		int i = 0;
 		for (i = 0;i < nready;i ++) {
 
-			if (events[i].data.fd == sockfd) { // listen 
+			int sockfd = islistenfd(events[i].data.fd, sockfds);
+			if (sockfd) { // listen 2
 
 				struct sockaddr_in client_addr;
 				memset(&client_addr, 0, sizeof(struct sockaddr_in));
@@ -109,6 +133,12 @@ int main(int argc, char *argv[]) {
 
 				int clientfd = accept(sockfd, (struct sockaddr*)&client_addr, &client_len);
 
+				fcntl(clientfd, F_SETFL, O_NONBLOCK);
+
+				int reuse = 1;
+				setsockopt(clientfd, SOL_SOCKET, SO_REUSEADDR, (char *)&reuse, sizeof(reuse));
+
+				struct epoll_event ev;
 				ev.events = EPOLLIN | EPOLLET; 
 				ev.data.fd = clientfd;
 				epoll_ctl(epfd, EPOLL_CTL_ADD, clientfd, &ev);
@@ -122,6 +152,7 @@ int main(int argc, char *argv[]) {
 				if (len < 0) {
 					close(clientfd);
 
+					struct epoll_event ev;
 					ev.events = EPOLLIN; 
 					ev.data.fd = clientfd;
 					epoll_ctl(epfd, EPOLL_CTL_DEL, clientfd, &ev);
@@ -129,12 +160,13 @@ int main(int argc, char *argv[]) {
 				} else if (len == 0) { // disconnect
 					close(clientfd);
 
+					struct epoll_event ev;
 					ev.events = EPOLLIN; 
 					ev.data.fd = clientfd;
 					epoll_ctl(epfd, EPOLL_CTL_DEL, clientfd, &ev);
 					
 				} else {
-					printf("Recv: %s, %d byte(s)\n", buffer, len);
+					printf("Recv: %s, %d byte(s), clientfd: %d\n", buffer, len, clientfd);
 				}
 				
 				
@@ -149,6 +181,9 @@ int main(int argc, char *argv[]) {
 	
 	return 0;
 }
+
+
+
 
 
 
